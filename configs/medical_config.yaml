@@ -1,0 +1,167 @@
+# Configuration for Medical Domain Training
+# MIMIC-CXR Dataset
+
+# ================== DATA CONFIGURATION ==================
+data:
+  dataset_name: "mimic_cxr"
+  data_dir: "./data/MIMIC-CXR"
+  image_dir: "./data/MIMIC-CXR/files"
+  split_file: "./data/MIMIC-CXR/mimic-cxr-2.0.0-split.csv"
+  report_file: "./data/MIMIC-CXR/mimic_cxr_sectioned.csv"
+  
+  # Data splits
+  train_split: "train"
+  val_split: "validate"
+  test_split: "test"
+  
+  # Report sections
+  use_findings_only: true  # Use only findings section (vs full report)
+  
+  # Preprocessing
+  max_seq_len: 200  # Longer for medical reports
+  min_word_freq: 3   # Lower threshold for medical terms
+  
+  # VinDr-CXR (for pathology detection pre-training)
+  vindr_data_dir: "./data/VinDr-CXR"
+  vindr_annotation_file: "./data/VinDr-CXR/annotations_train.csv"
+
+# ================== MODEL CONFIGURATION ==================
+model:
+  # Medical Region Encoder
+  region_encoder:
+    type: "medical_faster_rcnn"
+    pretrained: true
+    num_regions: 36
+    feature_dim: 2048
+    conf_threshold: 0.3  # Lower threshold for medical findings
+    nms_threshold: 0.5
+    
+    # Medical-specific
+    use_anatomical_regions: true
+    use_pathology_detector: false  # Requires VinDr-CXR pre-training
+  
+  # Transformer Decoder
+  decoder:
+    d_model: 512
+    num_heads: 8
+    num_layers: 6
+    d_ff: 2048
+    dropout: 0.1
+    max_seq_len: 200
+
+# ================== TRAINING CONFIGURATION ==================
+training:
+  # Phase 1: Supervised (Cross-Entropy)
+  supervised:
+    epochs: 50  # More epochs for medical domain
+    batch_size: 16  # Smaller batch size
+    learning_rate: 5.0e-4
+    weight_decay: 1.0e-5
+    label_smoothing: 0.1
+    
+    # Optimization
+    optimizer: "adam"
+    grad_clip: 5.0
+    
+    # Learning rate scheduling
+    scheduler: "reduce_on_plateau"
+    lr_patience: 3
+    lr_factor: 0.5
+  
+  # Phase 2: Reinforcement Learning (SCST with RadGraph)
+  reinforcement:
+    epochs: 30
+    batch_size: 16
+    learning_rate: 5.0e-6  # Lower for medical domain
+    weight_decay: 1.0e-6
+    
+    # Reward function weights
+    reward_cider_weight: 1.0
+    reward_radgraph_weight: 2.0  # Emphasize clinical accuracy
+    
+    # RL-specific
+    baseline_type: "greedy"
+    entropy_weight: 0.01
+    
+    # Optimization
+    optimizer: "adam"
+    grad_clip: 5.0
+    
+    # Medical-specific
+    use_radgraph: true
+    use_chexbert: false  # Optional, requires installation
+
+# ================== EVALUATION CONFIGURATION ==================
+evaluation:
+  batch_size: 16
+  beam_size: 3
+  
+  # Metrics to compute
+  metrics:
+    - "BLEU"
+    - "METEOR"
+    - "ROUGE_L"
+    - "CIDEr"
+    - "RadGraph_F1"
+    - "CheXbert_F1"  # If available
+  
+  # Medical-specific evaluation
+  compute_clinical_entity_analysis: true
+  
+  # Cross-dataset evaluation
+  evaluate_on_iuxray: true
+  iuxray_data_dir: "./data/IU-XRay"
+
+# ================== SYSTEM CONFIGURATION ==================
+system:
+  device: "cuda"
+  num_workers: 4
+  pin_memory: true
+  seed: 42
+  
+  # Checkpointing
+  checkpoint_dir: "./checkpoints/medical"
+  save_every_n_epochs: 5
+  keep_n_checkpoints: 3
+  
+  # Logging
+  log_dir: "./logs/medical"
+  log_every_n_steps: 100
+  use_wandb: false
+  wandb_project: "image-captioning-medical"
+
+# ================== INFERENCE CONFIGURATION ==================
+inference:
+  checkpoint_path: "./checkpoints/medical/best_rl_model.pth"
+  beam_size: 3
+  max_length: 200
+  temperature: 1.0
+  top_k: null
+  top_p: null
+
+# ================== MEDICAL-SPECIFIC CONFIGURATION ==================
+medical:
+  # RadGraph
+  radgraph:
+    enabled: true
+    model_path: null  # Use default
+  
+  # CheXbert
+  chexbert:
+    enabled: false
+    model_path: null
+    pathology_classes:
+      - "Enlarged Cardiomediastinum"
+      - "Cardiomegaly"
+      - "Lung Opacity"
+      - "Lung Lesion"
+      - "Edema"
+      - "Consolidation"
+      - "Pneumonia"
+      - "Atelectasis"
+      - "Pneumothorax"
+      - "Pleural Effusion"
+      - "Pleural Other"
+      - "Fracture"
+      - "Support Devices"
+      - "No Finding"
